@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>회의실 예약 (A–E, 30분 단위)</title>
+  <style>
+    :root{
+      --bg:#0f172a; /* slate-900 */
+      --card:#111827; /* gray-900 */
+      --muted:#94a3b8; /* slate-400 */
+      --text:#e5e7eb; /* gray-200 */
+      --accent:#22c55e; /* green-500 */
+      --danger:#ef4444; /* red-500 */
+      --border:#1f2937; /* gray-800 */
+      --slot:#0b1224; /* darker row */
+      --slot-alt:#0d152b;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1630);color:var(--text);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Apple Color Emoji,Noto Color Emoji,Apple SD Gothic Neo,Noto Sans KR,Helvetica,Arial,"Apple SD Gothic Neo",sans-serif}
+    header{padding:18px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(10,15,30,.8);backdrop-filter:saturate(140%) blur(10px);z-index:10}
+    h1{margin:0;font-weight:700;font-size:20px;letter-spacing:.2px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    .toolbar > *{background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1;display:flex;align-items:center;gap:8px}
+    input,select,button,textarea{font:inherit}
+    button{cursor:pointer}
+    button.primary{background:var(--accent);border:none;color:#052e16}
+    button.ghost{background:transparent;border:1px solid var(--border)}
+    main{padding:16px;max-width:1200px;margin:0 auto}
+    .grid-wrap{overflow:auto;border:1px solid var(--border);border-radius:14px}
+    .grid{display:grid;min-width:900px}
+    .grid .head{position:sticky;top:0;background:#0b1224;z-index:5}
+    .cell{padding:10px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);min-height:42px}
+    .time-col{width:90px;position:sticky;left:0;z-index:4;background:linear-gradient(180deg,#0b1224,#0b1224)}
+    .room-head{font-weight:700;text-align:center}
+    .badge{display:inline-flex;gap:6px;align-items:center;padding:2px 8px;border-radius:999px;background:#0e1a36;border:1px solid var(--border);font-size:12px;color:var(--muted)}
+    .legend{display:flex;gap:12px;align-items:center;margin-left:auto}
+    .resv{background:linear-gradient(180deg,#052e16,#06331a);border:1px solid #14532d;color:#eafff0;border-radius:10px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:8px;height:100%}
+    .resv .title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .resv small{color:#c7f9d5}
+    .slot{background:transparent}
+    .slot:hover{background:#0f1b36}
+    .row-alt{background:var(--slot-alt)}
+    .row{background:var(--slot)}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:50}
+    .modal{background:var(--card);border:1px solid var(--border);border-radius:14px;max-width:520px;width:95%;padding:16px}
+    .modal h3{margin:0 0 8px 0}
+    .f{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;margin:8px 0}
+    .f input,.f select,.f textarea{background:#0a1328;border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text)}
+    .f textarea{min-height:74px;resize:vertical}
+    .modal .row-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+    .pill{border:1px dashed var(--border);padding:8px 10px;border-radius:10px;color:var(--muted);font-size:12px}
+    .footer{margin-top:10px;color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .toast{position:fixed;right:16px;bottom:16px;background:#0b1224;border:1px solid var(--border);padding:12px 14px;border-radius:12px;display:none;z-index:60}
+    .hint{color:var(--muted);font-size:12px}
+    a.link{color:#7dd3fc;text-decoration:none}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>회의실 예약 (Rooms A–E, 30분 단위)</h1>
+    <div class="toolbar">
+      <label class="badge">
+        날짜
+        <input type="date" id="datePicker">
+      </label>
+      <label class="badge">
+        시작
+        <select id="startHour"></select>
+      </label>
+      <label class="badge">
+        종료
+        <select id="endHour"></select>
+      </label>
+      <button class="primary" id="newBtn">+ 새 예약</button>
+      <button class="ghost" id="exportBtn">내보내기(JSON)</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none">
+      <button class="ghost" id="importBtn">가져오기(JSON)</button>
+      <div class="legend">
+        <span class="badge">A</span>
+        <span class="badge">B</span>
+        <span class="badge">C</span>
+        <span class="badge">D</span>
+        <span class="badge">E</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid-wrap">
+      <div id="grid" class="grid"></div>
+    </div>
+    <div class="footer">
+      <span class="pill">브라우저(LocalStorage)에 저장됩니다. 다른 사람과 공유하려면 JSON을 내보내서 업로드하거나, 이 파일을 간단한 호스팅(GitHub Pages/Netlify 등)에 올려 URL을 공유하세요.</span>
+      <span class="hint">중복 예약 자동 방지 · 클릭으로 편집/삭제</span>
+    </div>
+  </main>
+
+  <!-- Modal -->
+  <div class="modal-backdrop" id="modalWrap" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal">
+      <h3 id="modalTitle">새 예약</h3>
+      <div class="f"><label>방</label><select id="fRoom"></select></div>
+      <div class="f"><label>날짜</label><input type="date" id="fDate"></div>
+      <div class="f"><label>시작</label><select id="fStart"></select></div>
+      <div class="f"><label>길이</label><select id="fDur"></select></div>
+      <div class="f"><label>제목</label><input id="fTitle" placeholder="예: 주간 정기회의"></div>
+      <div class="f"><label>주최자</label><input id="fOwner" placeholder="예: 지현"></div>
+      <div class="f"><label>메모</label><textarea id="fNote" placeholder="필요 장비, 참석자 등"></textarea></div>
+      <div class="row-btns">
+        <button class="ghost" id="delBtn" style="display:none;color:var(--danger);border-color:#3f1d1d">삭제</button>
+        <button class="ghost" id="cancelBtn">취소</button>
+        <button class="primary" id="saveBtn">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ---------- Utilities ----------
+    const ROOMS = ["A","B","C","D","E"];
+    const SLOT_MINUTES = 30;
+    const DEFAULT_START = 8;
+    const DEFAULT_END = 20;
+    const STORAGE_KEY = "roomResv_v1";
+
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const pad = n => String(n).padStart(2,'0');
+
+    function toKey(dateStr){ return dateStr; } // date string 'YYYY-MM-DD'
+    function toSlotIndex(h, m){ return h*60/SLOT_MINUTES + Math.floor(m/SLOT_MINUTES); }
+    function fromSlotIndex(idx){ const total = idx*SLOT_MINUTES; return {h:Math.floor(total/60), m: total%60}; }
+    function fmtHM(h,m){ return pad(h)+":"+pad(m); }
+    function showToast(msg){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; setTimeout(()=>t.style.display="none",1400); }
+
+    function loadData(){
+      try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); }catch{ return {}; }
+    }
+    function saveData(data){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    // ---------- State ----------
+    const state = {
+      startHour: DEFAULT_START,
+      endHour: DEFAULT_END,
+      date: new Date(),
+      data: loadData(), // { [dateKey]: [ reservations ] }
+      editing: null // reservation id
+    };
+
+    function ymd(d){
+      const tz = new Date(d.getTime() - d.getTimezoneOffset()*60000); // local ISO date
+      return tz.toISOString().slice(0,10);
+    }
+
+    // ---------- Init controls ----------
+    function initControls(){
+      // Date
+      const dp = $("#datePicker");
+      dp.value = ymd(state.date);
+      dp.addEventListener("change", ()=>{ state.date = new Date(dp.value+"T00:00:00"); renderGrid(); });
+
+      // Start/End hour selects
+      const sh = $("#startHour"), eh=$("#endHour");
+      for(let h=0; h<=23; h++){
+        const o1 = document.createElement("option"); o1.value=h; o1.textContent=pad(h)+":00"; if(h===state.startHour) o1.selected=true; sh.appendChild(o1);
+        const o2 = document.createElement("option"); o2.value=h; o2.textContent=pad(h)+":00"; if(h===state.endHour) o2.selected=true; eh.appendChild(o2);
+      }
+      sh.addEventListener("change", ()=>{ state.startHour=+sh.value; renderGrid(); });
+      eh.addEventListener("change", ()=>{ state.endHour=Math.max(+eh.value, state.startHour+1); eh.value=state.endHour; renderGrid(); });
+
+      // Buttons
+      $("#newBtn").addEventListener("click", ()=> openModal());
+      $("#exportBtn").addEventListener("click", doExport);
+      $("#importBtn").addEventListener("click", ()=> $("#importFile").click());
+      $("#importFile").addEventListener("change", doImport);
+    }
+
+    // ---------- Reservations Logic ----------
+    function getDayList(key){
+      return state.data[key] || [];
+    }
+    function setDayList(key, list){
+      state.data[key] = list;
+      saveData(state.data);
+    }
+    function genId(){ return Math.random().toString(36).slice(2,10); }
+
+    function overlaps(resv, others){
+      const start = resv.start; // slot index
+      const end = start + resv.slots; // exclusive
+      return others.some(r=> r.room===resv.room && !(end<=r.start || start>=r.start+r.slots) && r.id!==resv.id);
+    }
+
+    // ---------- Grid Rendering ----------
+    function renderGrid(){
+      const key = toKey(ymd(state.date));
+      const list = getDayList(key);
+      const grid = $("#grid");
+      const hours = [];
+      for(let h=state.startHour; h<state.endHour; h++){
+        hours.push(h);
+      }
+      const rows = hours.length * (60/SLOT_MINUTES);
+      const cols = 1 + ROOMS.length; // time + rooms
+
+      grid.style.gridTemplateColumns = `90px repeat(${ROOMS.length}, 1fr)`;
+
+      // Build header
+      grid.innerHTML = "";
+      const headTime = div("cell head time-col"); headTime.textContent="시간/방"; grid.appendChild(headTime);
+      for(const r of ROOMS){
+        const h = div("cell head room-head"); h.textContent=r; grid.appendChild(h);
+      }
+
+      // Build body rows
+      let rowIndex = 0;
+      for(const h of hours){
+        for(let s=0; s<60/SLOT_MINUTES; s++){
+          const idx = toSlotIndex(h, s*SLOT_MINUTES);
+          const rowClass = (rowIndex%2===0?"row":"row-alt");
+          // time col
+          const tc = div(`cell time-col ${rowClass}`);
+          tc.textContent = fmtHM(h, s*SLOT_MINUTES);
+          grid.appendChild(tc);
+          // room cols
+          for(const room of ROOMS){
+            const cell = div(`cell ${rowClass} slot`);
+            cell.dataset.slot = idx;
+            cell.dataset.room = room;
+            cell.addEventListener("click", (e)=>{
+              // If clicking on existing reservation element inside cell, ignore (handled separately)
+              if(e.target.closest(".resv")) return;
+              openModal({room, start: idx});
+            });
+            grid.appendChild(cell);
+          }
+          rowIndex++;
+        }
+      }
+
+      // Place reservations
+      for(const r of list){
+        const startH = fromSlotIndex(r.start).h;
+        if(r.start < state.startHour*2 || r.start >= state.endHour*2) continue; // outside visible area
+        const startRowInView = (r.start - state.startHour*2); // row index within view (each row is one slot, 30m -> 2 per hour)
+        const row = startRowInView; // first visible row
+        const colIndex = ROOMS.indexOf(r.room)+1; // + time col
+        // compute the cell index: (row+1 header row) * cols + (colIndex)
+        // But easier: select cell via query
+        const selector = `.cell.slot[data-room="${r.room}"][data-slot="${r.start}"]`;
+        const startCell = grid.querySelector(selector);
+        if(!startCell) continue;
+        const el = renderReservationElement(r);
+        // Span rows: set element height to slots * cell height by flex stretch
+        el.style.gridRow = `span ${r.slots}`;
+        startCell.style.position="relative";
+        startCell.appendChild(el);
+
+        // Fill covered cells with placeholders to show spanning
+        // (Visual handled by CSS height; we also mark cells as covered to avoid clicks)
+        for(let i=1;i<r.slots;i++){
+          const coveredSel = `.cell.slot[data-room="${r.room}"][data-slot="${r.start+i}"]`;
+          const covered = grid.querySelector(coveredSel);
+          if(covered){
+            covered.style.background="transparent";
+            covered.dataset.covered="1";
+          }
+        }
+      }
+    }
+
+    function renderReservationElement(r){
+      const el = div("resv");
+      const left = div();
+      left.innerHTML = `<div class="title">${escapeHtml(r.title||"(제목 없음)")}</div>
+                        <small>${r.room} • ${fmtHM(fromSlotIndex(r.start).h, fromSlotIndex(r.start).m)} ~ ${fmtHM(fromSlotIndex(r.start + r.slots).h, fromSlotIndex(fromSlotIndex(r.start + r.slots).m).m)}</small>`;
+      const right = div();
+      const editBtn = document.createElement("button"); editBtn.textContent="편집"; editBtn.className="ghost"; editBtn.style.padding="6px 8px";
+      editBtn.addEventListener("click", (e)=>{ e.stopPropagation(); openModal(null, r.id); });
+      right.appendChild(editBtn);
+      el.appendChild(left); el.appendChild(right);
+      el.addEventListener("click", (e)=>{ e.stopPropagation(); openModal(null, r.id); });
+      return el;
+    }
+
+    // ---------- Modal ----------
+    function openModal(preset=null, id=null){
+      const wrap=$("#modalWrap");
+      wrap.style.display="flex";
+      $("#modalTitle").textContent = id ? "예약 편집" : "새 예약";
+
+      // Room options
+      const roomSel=$("#fRoom");
+      roomSel.innerHTML="";
+      ROOMS.forEach(r=>{ const o=document.createElement("option"); o.value=r; o.textContent=r; roomSel.appendChild(o); });
+
+      // Date
+      $("#fDate").value = ymd(state.date);
+
+      // Start & duration
+      const fStart=$("#fStart"), fDur=$("#fDur");
+      fStart.innerHTML=""; fDur.innerHTML="";
+      const startHour = state.startHour, endHour = state.endHour;
+      for(let h=startHour; h<endHour; h++){
+        for(let m=0; m<60; m+=SLOT_MINUTES){
+          const idx = toSlotIndex(h,m);
+          const o = document.createElement("option");
+          o.value=idx; o.textContent = fmtHM(h,m);
+          fStart.appendChild(o);
+        }
+      }
+      // durations up to 4 hours (8 slots), but not beyond endHour
+      for(let s=1; s<=8; s++){
+        const o=document.createElement("option"); o.value=s; o.textContent=(s*30)+"분"; fDur.appendChild(o);
+      }
+
+      // Fields
+      $("#fTitle").value="";
+      $("#fOwner").value="";
+      $("#fNote").value="";
+      $("#delBtn").style.display = id ? "inline-flex" : "none";
+
+      if(preset){
+        roomSel.value = preset.room || ROOMS[0];
+        fStart.value = String(preset.start ?? toSlotIndex(startHour,0));
+      }
+      if(id){
+        const key = toKey($("#fDate").value);
+        const list = getDayList(key);
+        const found = list.find(x=>x.id===id);
+        if(found){
+          state.editing = id;
+          roomSel.value = found.room;
+          $("#fDate").value = found.date;
+          fStart.value = found.start;
+          fDur.value = found.slots;
+          $("#fTitle").value = found.title||"";
+          $("#fOwner").value = found.owner||"";
+          $("#fNote").value = found.note||"";
+        }
+      }else{
+        state.editing = null;
+      }
+
+      $("#cancelBtn").onclick = closeModal;
+      $("#saveBtn").onclick = saveReservation;
+      $("#delBtn").onclick = deleteReservation;
+      wrap.setAttribute("aria-hidden","false");
+    }
+    function closeModal(){
+      $("#modalWrap").style.display="none";
+      $("#modalWrap").setAttribute("aria-hidden","true");
+    }
+
+    function saveReservation(){
+      const room = $("#fRoom").value;
+      const date = $("#fDate").value;
+      const start = +$("#fStart").value;
+      const slots = +$("#fDur").value;
+      const title = $("#fTitle").value.trim();
+      const owner = $("#fOwner").value.trim();
+      const note = $("#fNote").value.trim();
+
+      const key = toKey(date);
+      const list = getDayList(key).slice();
+
+      const resv = {
+        id: state.editing || genId(),
+        room, date, start, slots,
+        title, owner, note
+      };
+      if(overlaps(resv, list)){
+        showToast("⚠️ 같은 시간에 해당 방의 다른 예약이 있습니다.");
+        return;
+      }
+      // upsert
+      const idx = list.findIndex(x=>x.id===resv.id);
+      if(idx>=0) list[idx]=resv; else list.push(resv);
+      setDayList(key, list);
+      closeModal();
+      showToast("✅ 저장되었습니다.");
+      renderGrid();
+    }
+
+    function deleteReservation(){
+      if(!state.editing) return;
+      const date = $("#fDate").value;
+      const key = toKey(date);
+      const list = getDayList(key).slice();
+      const idx = list.findIndex(x=>x.id===state.editing);
+      if(idx>=0) list.splice(idx,1);
+      setDayList(key, list);
+      closeModal();
+      showToast("🗑️ 삭제되었습니다.");
+      renderGrid();
+    }
+
+    // ---------- Import / Export ----------
+    function doExport(){
+      const data = JSON.stringify(state.data, null, 2);
+      const blob = new Blob([data], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "reservations.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("💾 JSON 파일로 내보냈습니다.");
+    }
+    function doImport(ev){
+      const file = ev.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (e)=>{
+        try{
+          const obj = JSON.parse(e.target.result);
+          if(typeof obj === "object"){
+            state.data = obj;
+            saveData(state.data);
+            renderGrid();
+            showToast("📥 JSON에서 불러왔습니다.");
+          }else{
+            showToast("형식 오류: JSON 객체가 아닙니다.");
+          }
+        }catch(err){
+          showToast("불러오기 실패: 올바른 JSON이 아닙니다.");
+        }
+      };
+      reader.readAsText(file);
+      ev.target.value="";
+    }
+
+    // ---------- Helpers ----------
+    function div(cls=""){ const d=document.createElement("div"); if(cls) d.className=cls; return d; }
+    function escapeHtml(s){
+      return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]));
+    }
+
+    // ---------- Start ----------
+    initControls();
+    renderGrid();
+  </script>
+</body>
+</html>
